@@ -13,21 +13,15 @@
  */
 
 #include "core_device.h"
+#include "core_storage.h"
 
 #include <string.h>
 #include <stdio.h>
+#include "nvs.h"
 #include "esp_log.h"
 #include "esp_mac.h"
-#include "nvs_flash.h"
-#include "nvs.h"
 
 static const char *TAG = "DEVICE";
-
-/** NVS key used to persist the device ID */
-#define NVS_KEY_DEVICE_ID "device_id"
-
-/** NVS namespace for device values */
-#define NVS_NS_DEVICE "device"
 
 static char device_id[DEVICE_ID_STR_LEN] = "unknown";
 
@@ -85,16 +79,9 @@ esp_err_t core_device_init(void)
 {
     ESP_LOGI(TAG, "Initializing device identity...");
 
-    nvs_handle_t nvs;
-    esp_err_t err = nvs_open(NVS_NS_DEVICE, NVS_READWRITE, &nvs);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to open NVS namespace '%s': 0x%x", NVS_NS_DEVICE, err);
-        return err;
-    }
-
     /* Try to load an existing device ID from NVS */
-    size_t len = DEVICE_ID_STR_LEN;
-    err = nvs_get_str(nvs, NVS_KEY_DEVICE_ID, device_id, &len);
+    esp_err_t err = core_storage_read_str(NVS_NAMESPACE_DEVICE, NVS_KEY_DEVICE_ID,
+                                          device_id, DEVICE_ID_STR_LEN);
 
     if (err == ESP_OK) {
         ESP_LOGI(TAG, "Loaded device ID from NVS");
@@ -104,7 +91,6 @@ esp_err_t core_device_init(void)
         err = esp_read_mac(mac, ESP_MAC_WIFI_STA);
         if (err != ESP_OK) {
             ESP_LOGE(TAG, "Failed to read MAC address: 0x%x", err);
-            nvs_close(nvs);
             return err;
         }
 
@@ -113,28 +99,17 @@ esp_err_t core_device_init(void)
         uuid_bytes_to_string(uuid_bytes, device_id);
 
         /* Persist the new ID */
-        err = nvs_set_str(nvs, NVS_KEY_DEVICE_ID, device_id);
+        err = core_storage_write_str(NVS_NAMESPACE_DEVICE, NVS_KEY_DEVICE_ID, device_id);
         if (err != ESP_OK) {
             ESP_LOGE(TAG, "Failed to store device ID: 0x%x", err);
-            nvs_close(nvs);
-            return err;
-        }
-
-        err = nvs_commit(nvs);
-        if (err != ESP_OK) {
-            ESP_LOGE(TAG, "NVS commit failed: 0x%x", err);
-            nvs_close(nvs);
             return err;
         }
 
         ESP_LOGI(TAG, "Generated and stored new device ID");
     } else {
         ESP_LOGE(TAG, "Failed to read device ID from NVS: 0x%x", err);
-        nvs_close(nvs);
         return err;
     }
-
-    nvs_close(nvs);
 
     ESP_LOGI(TAG, "Device ID: %s", device_id);
     return ESP_OK;
