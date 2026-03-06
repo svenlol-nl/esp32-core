@@ -8,6 +8,7 @@
 
 #include "core_boot.h"
 #include "core_storage.h"
+#include "core_config.h"
 
 #include <stdio.h>
 #include "esp_log.h"
@@ -53,23 +54,21 @@ core_boot_state_t core_boot_resolve_state(void)
 {
     ESP_LOGI(TAG, "Checking configuration...");
 
-    /* Check if local_configure flag is explicitly set */
-    uint8_t local_cfg = 0;
-    esp_err_t err = core_storage_read_u8(NVS_NAMESPACE_CORE, NVS_KEY_LOCAL_CONFIGURE, &local_cfg);
+    const core_config_t *cfg = core_config_get();
 
-    if (err == ESP_ERR_NVS_NOT_FOUND) {
-        /* No configuration exists at all → first boot, enter local configure */
-        ESP_LOGI(TAG, "No configuration found (first boot)");
-        return CORE_LOCAL_CONFIGURE;
-    }
-
-    if (err == ESP_OK && local_cfg == 1) {
-        /* Flag is explicitly set → enter local configure */
+    /* 1. local_configure flag explicitly set → configure mode */
+    if (cfg->system.local_configure_enabled) {
         ESP_LOGI(TAG, "Local configure flag is set");
         return CORE_LOCAL_CONFIGURE;
     }
 
-    /* Configuration exists and local_configure is not set → launch project */
+    /* 2. No WiFi SSID configured → needs configuration */
+    if (!core_config_has_wifi()) {
+        ESP_LOGI(TAG, "No WiFi configured — entering local configure");
+        return CORE_LOCAL_CONFIGURE;
+    }
+
+    /* 3. Configuration looks valid → launch project */
     return CORE_START_PROJECT;
 }
 

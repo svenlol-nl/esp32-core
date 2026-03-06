@@ -1,0 +1,6 @@
+# Use custom partition table (factory + ota_0)
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+
+# 4MB flash required for factory + ota_0 layout
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y

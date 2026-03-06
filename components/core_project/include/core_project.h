@@ -1,13 +1,14 @@
 /**
  * core_project.h
  *
- * Project firmware detection and launch logic.
+ * Project firmware partition discovery, image validation, and launch.
  *
  * Responsible for:
- *   - Checking whether a project firmware partition exists
- *   - (Future) Jumping to the project firmware
+ *   - Locating a project firmware partition (default: "ota_0")
+ *   - Validating the project image header
+ *   - Transferring control to the project firmware
  *
- * The actual partition jump is not implemented yet.
+ * Independent of BLE, OTA download, and networking.
  */
 
 #ifndef CORE_PROJECT_H
@@ -20,20 +21,33 @@
  * Check if a project firmware partition exists on the flash.
  *
  * Looks for the partition label stored in NVS under core.proj_part,
- * or falls back to looking for a partition labelled "project".
+ * or falls back to "ota_0".
  *
  * @return true if a suitable partition was found, false otherwise.
  */
 bool core_project_partition_exists(void);
 
 /**
- * Attempt to launch the project firmware.
+ * Validate the project firmware image.
  *
- * Currently a skeleton — logs what it would do but does not
- * perform the actual jump.
+ * Reads the app descriptor from the project partition and verifies
+ * the image header is well-formed.  Logs project name, version, and
+ * IDF version on success.
  *
- * @return ESP_OK if the project would be launchable,
- *         ESP_ERR_NOT_FOUND if no project partition exists.
+ * @return true if the image is valid, false otherwise.
+ */
+bool core_project_validate_image(void);
+
+/**
+ * Locate, validate, and launch the project firmware.
+ *
+ * On success this function does not return — it sets the boot
+ * partition and restarts into the project image.  On failure it
+ * returns an error so the caller can fall back.
+ *
+ * @return ESP_ERR_NOT_FOUND      no project partition found
+ * @return ESP_ERR_INVALID_STATE  image validation failed
+ * @return (other)                boot partition write error
  */
 esp_err_t core_project_launch(void);
 
