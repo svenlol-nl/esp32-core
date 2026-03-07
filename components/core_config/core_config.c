@@ -239,6 +239,13 @@ void core_config_enter_local_configure(void)
         core_config_init();
     }
 
+    /* Clear the flag so the device does not re-enter configure mode
+       on the next reboot unless explicitly requested again. */
+    if (s_config.system.local_configure_enabled) {
+        s_config.system.local_configure_enabled = 0;
+        core_config_save();
+    }
+
     ESP_LOGI(TAG, "Current configuration:");
     ESP_LOGI(TAG, "  wifi.ssid        : %s",
              s_config.wifi.ssid[0] ? s_config.wifi.ssid : "(not set)");
