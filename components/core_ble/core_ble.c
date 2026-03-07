@@ -20,6 +20,7 @@
 #include "core_ble.h"
 #include "core_config.h"
 #include "core_device.h"
+#include "core_storage.h"
 
 #include <string.h>
 #include <stdio.h>
@@ -289,9 +290,11 @@ static void handle_command(const char *data, size_t len)
     }
     else if (strcmp(command, "start_ota") == 0)
     {
-        ESP_LOGI("CORE", "OTA update requested");
-        ESP_LOGI("CORE", "OTA process would start here");
-        core_ble_send_status("{\"status\":\"ota not yet implemented\"}");
+        ESP_LOGI("OTA", "OTA update requested via BLE");
+        core_storage_write_u8(NVS_NAMESPACE_CORE, NVS_KEY_OTA_REQUEST, 1);
+        core_ble_send_status("{\"status\":\"OTA requested, rebooting\"}");
+        vTaskDelay(pdMS_TO_TICKS(500));
+        esp_restart();
     }
     else if (strcmp(command, "enable_local_configure") == 0)
     {

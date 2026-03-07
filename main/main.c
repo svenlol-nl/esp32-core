@@ -9,8 +9,9 @@
  *   3. Load or generate device ID
  *   4. Load configuration
  *   5. Print device information
- *   6. Resolve boot state (local configure vs. project launch)
- *   7. Execute the chosen boot path
+ *   6. OTA decision logic (request flag / scheduled check)
+ *   7. Resolve boot state (local configure vs. project launch)
+ *   8. Execute the chosen boot path
  */
 
 #include "core_boot.h"
@@ -18,6 +19,7 @@
 #include "core_device.h"
 #include "core_project.h"
 #include "core_config.h"
+#include "core_ota.h"
 
 #include "esp_log.h"
 
@@ -55,11 +57,14 @@ void app_main(void)
     /* 5. Device info summary */
     core_boot_print_device_info();
 
-    /* 6. Determine boot state */
+    /* 6. OTA decision logic (may restart if update is applied) */
+    core_ota_run();
+
+    /* 7. Determine boot state */
     core_boot_state_t state = core_boot_resolve_state();
     ESP_LOGI(TAG, "Boot mode: %s", core_boot_state_name(state));
 
-    /* 7. Execute the chosen boot path */
+    /* 8. Execute the chosen boot path */
     switch (state)
     {
     case CORE_LOCAL_CONFIGURE:
@@ -68,12 +73,10 @@ void app_main(void)
         break;
 
     case CORE_START_PROJECT:
-        ESP_LOGI(TAG, "Launching project firmware...");
+        ESP_LOGI("PROJECT", "Launching project firmware");
         err = core_project_launch();
         if (err != ESP_OK)
         {
-            /* core_project_launch() only returns on failure.
-             * On success it restarts into the project image. */
             ESP_LOGW(TAG, "Falling back to LOCAL_CONFIGURE mode");
             core_config_enter_local_configure();
             /* does not return */

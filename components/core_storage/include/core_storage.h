@@ -37,6 +37,12 @@
 /** string – the unique device identifier (UUID) */
 #define NVS_KEY_DEVICE_ID "device_id"
 
+/** uint8 flag – set to 1 to request OTA update on next boot */
+#define NVS_KEY_OTA_REQUEST "ota_req"
+
+/** uint32 – persistent boot counter */
+#define NVS_KEY_BOOT_COUNT "boot_cnt"
+
 /* ------------------------------------------------------------------ */
 /*  Initialization                                                     */
 /* ------------------------------------------------------------------ */
@@ -102,5 +108,34 @@ esp_err_t core_storage_write_u8(const char *ns, const char *key, uint8_t value);
  */
 esp_err_t core_storage_write_str(const char *ns, const char *key,
                                  const char *value);
+
+/**
+ * Read a uint32 value from NVS.
+ *
+ * @param ns    NVS namespace
+ * @param key   NVS key
+ * @param out   Pointer to store the value
+ * @return ESP_OK, ESP_ERR_NVS_NOT_FOUND, or another NVS error.
+ */
+esp_err_t core_storage_read_u32(const char *ns, const char *key, uint32_t *out);
+
+/**
+ * Write a uint32 value to NVS (opens, writes, commits, closes).
+ *
+ * @param ns    NVS namespace
+ * @param key   NVS key
+ * @param value Value to store
+ * @return ESP_OK on success, or an NVS error.
+ */
+esp_err_t core_storage_write_u32(const char *ns, const char *key, uint32_t value);
+
+/**
+ * Erase a single key from NVS.
+ *
+ * @param ns    NVS namespace
+ * @param key   NVS key to erase
+ * @return ESP_OK on success, or an NVS error.
+ */
+esp_err_t core_storage_erase_key(const char *ns, const char *key);
 
 #endif // CORE_STORAGE_H

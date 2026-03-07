@@ -115,3 +115,59 @@ esp_err_t core_storage_write_str(const char *ns, const char *key,
     nvs_close(nvs);
     return err;
 }
+
+/* ------------------------------------------------------------------ */
+/*  u32 helpers                                                        */
+/* ------------------------------------------------------------------ */
+
+esp_err_t core_storage_read_u32(const char *ns, const char *key, uint32_t *out)
+{
+    nvs_handle_t nvs;
+    esp_err_t err = nvs_open(ns, NVS_READONLY, &nvs);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    err = nvs_get_u32(nvs, key, out);
+    nvs_close(nvs);
+    return err;
+}
+
+esp_err_t core_storage_write_u32(const char *ns, const char *key, uint32_t value)
+{
+    nvs_handle_t nvs;
+    esp_err_t err = nvs_open(ns, NVS_READWRITE, &nvs);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "NVS open '%s' failed: 0x%x", ns, err);
+        return err;
+    }
+
+    err = nvs_set_u32(nvs, key, value);
+    if (err == ESP_OK) {
+        err = nvs_commit(nvs);
+    }
+
+    nvs_close(nvs);
+    return err;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Key management                                                     */
+/* ------------------------------------------------------------------ */
+
+esp_err_t core_storage_erase_key(const char *ns, const char *key)
+{
+    nvs_handle_t nvs;
+    esp_err_t err = nvs_open(ns, NVS_READWRITE, &nvs);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    err = nvs_erase_key(nvs, key);
+    if (err == ESP_OK) {
+        err = nvs_commit(nvs);
+    }
+
+    nvs_close(nvs);
+    return err;
+}
