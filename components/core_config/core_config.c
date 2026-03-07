@@ -16,6 +16,7 @@
 
 #include "core_config.h"
 #include "core_storage.h"
+#include "core_ble.h"
 
 #include <string.h>
 #include "esp_log.h"
@@ -249,12 +250,13 @@ void core_config_enter_local_configure(void)
 
     ESP_LOGI(TAG, "Waiting for configuration updates");
 
-    /*
-     * Future: BLE GATT server will run here, allowing a mobile app
-     * to read the config, push updates, and trigger save + reboot.
-     *
-     * For now we idle, keeping the device alive in configure mode.
-     */
+    /* Start the BLE GATT server for mobile configuration */
+    esp_err_t err = core_ble_start();
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "BLE start failed (0x%x) — idling", err);
+    }
+
+    /* Keep the task alive while BLE handles configuration */
     while (true) {
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
