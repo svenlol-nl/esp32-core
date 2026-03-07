@@ -10,6 +10,9 @@
 #ifndef CORE_BOOT_H
 #define CORE_BOOT_H
 
+/** Core firmware version string */
+#define CORE_FW_VERSION "1.0.0"
+
 /**
  * Boot states the core firmware can transition into.
  */

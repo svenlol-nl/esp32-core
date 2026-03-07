@@ -57,14 +57,17 @@ void app_main(void)
     /* 5. Device info summary */
     core_boot_print_device_info();
 
-    /* 6. OTA decision logic (may restart if update is applied) */
+    /* 6. Rollback safety check */
+    core_ota_check_rollback();
+
+    /* 7. OTA decision logic (may restart if update is applied) */
     core_ota_run();
 
-    /* 7. Determine boot state */
+    /* 8. Determine boot state */
     core_boot_state_t state = core_boot_resolve_state();
     ESP_LOGI(TAG, "Boot mode: %s", core_boot_state_name(state));
 
-    /* 8. Execute the chosen boot path */
+    /* 9. Execute the chosen boot path */
     switch (state)
     {
     case CORE_LOCAL_CONFIGURE:

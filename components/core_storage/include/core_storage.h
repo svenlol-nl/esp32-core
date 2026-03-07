@@ -138,4 +138,12 @@ esp_err_t core_storage_write_u32(const char *ns, const char *key, uint32_t value
  */
 esp_err_t core_storage_erase_key(const char *ns, const char *key);
 
+/**
+ * Erase all keys within an NVS namespace.
+ *
+ * @param ns    NVS namespace to erase
+ * @return ESP_OK on success, or an NVS error.
+ */
+esp_err_t core_storage_erase_namespace(const char *ns);
+
 #endif // CORE_STORAGE_H

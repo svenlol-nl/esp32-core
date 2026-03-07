@@ -22,7 +22,7 @@ void core_boot_print_banner(void)
 {
     printf("\n");
     printf("============================================\n");
-    printf("  ESP32 Core Firmware | v1.0.0\n");
+    printf("  ESP32 Core Firmware | v%s\n", CORE_FW_VERSION);
     printf("  Copyright (c) 2026 Svenlol\n");
     printf("  https://github.com/Svenlol-nl/esp32-core\n");
     printf("  IDF: %s\n", esp_get_idf_version());

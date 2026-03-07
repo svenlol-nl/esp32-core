@@ -21,12 +21,15 @@
 #include "core_config.h"
 #include "core_device.h"
 #include "core_storage.h"
+#include "core_boot.h"
+#include "core_ota.h"
 
 #include <string.h>
 #include <stdio.h>
 
 #include "esp_log.h"
 #include "esp_system.h"
+#include "esp_timer.h"
 #include "cJSON.h"
 
 #include "nimble/nimble_port.h"
@@ -275,14 +278,7 @@ static void handle_command(const char *data, size_t len)
     else if (strcmp(command, "factory_reset") == 0)
     {
         ESP_LOGI("CORE", "Factory reset requested");
-        /* Clear configuration and reboot into configure mode */
-        core_config_t empty;
-        memset(&empty, 0, sizeof(empty));
-        empty.system.local_configure_enabled = 1;
-        strncpy(empty.firmware.channel, CONFIG_CHANNEL_STABLE,
-                sizeof(empty.firmware.channel) - 1);
-        core_config_update(&empty);
-        core_config_save();
+        core_config_factory_reset();
         core_ble_send_status("{\"status\":\"factory reset complete, rebooting\"}");
         ESP_LOGI("CORE", "Rebooting device");
         vTaskDelay(pdMS_TO_TICKS(500));
@@ -315,6 +311,32 @@ static void handle_command(const char *data, size_t len)
         core_config_update(&cfg);
         core_config_save();
         core_ble_send_status("{\"status\":\"local configure disabled\"}");
+    }
+    else if (strcmp(command, "get_device_info") == 0)
+    {
+        ESP_LOGI(TAG, "Device info requested");
+
+        char proj_ver[32];
+        core_ota_get_project_version(proj_ver, sizeof(proj_ver));
+
+        int64_t uptime_us = esp_timer_get_time();
+        uint32_t uptime_s = (uint32_t)(uptime_us / 1000000);
+
+        cJSON *info = cJSON_CreateObject();
+        if (info) {
+            cJSON_AddStringToObject(info, "device_id", core_device_get_id());
+            cJSON_AddStringToObject(info, "core_version", CORE_FW_VERSION);
+            cJSON_AddStringToObject(info, "project_version", proj_ver);
+            cJSON_AddNumberToObject(info, "uptime_s", uptime_s);
+            cJSON_AddNumberToObject(info, "free_heap", esp_get_free_heap_size());
+
+            char *json = cJSON_PrintUnformatted(info);
+            cJSON_Delete(info);
+            if (json) {
+                core_ble_send_status(json);
+                free(json);
+            }
+        }
     }
     else
     {

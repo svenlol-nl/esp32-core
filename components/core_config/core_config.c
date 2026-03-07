@@ -261,3 +261,30 @@ void core_config_enter_local_configure(void)
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
 }
+
+/* ------------------------------------------------------------------ */
+/*  Factory reset                                                      */
+/* ------------------------------------------------------------------ */
+
+esp_err_t core_config_factory_reset(void)
+{
+    ESP_LOGI("CORE", "Clearing configuration storage");
+
+    /* Erase all keys in the core namespace (WiFi, firmware, system) */
+    esp_err_t err = core_storage_erase_namespace(NVS_NAMESPACE_CORE);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to erase core namespace: 0x%x", err);
+        return err;
+    }
+
+    /* Device identity (NVS_NAMESPACE_DEVICE) is preserved */
+
+    /* Reset in-memory configuration to safe defaults */
+    memset(&s_config, 0, sizeof(s_config));
+    s_config.system.local_configure_enabled = 1;
+    strncpy(s_config.firmware.channel, CONFIG_CHANNEL_STABLE,
+            sizeof(s_config.firmware.channel) - 1);
+
+    ESP_LOGI("CORE", "Configuration cleared");
+    return ESP_OK;
+}

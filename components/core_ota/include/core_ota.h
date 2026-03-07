@@ -21,6 +21,32 @@
 #include <stdint.h>
 
 /**
+ * Get the currently installed project firmware version.
+ *
+ * Reads the app descriptor from the project partition.
+ * Falls back to "0.0.0" if no valid image is present.
+ *
+ * @param out     Buffer to receive the version string.
+ * @param max     Size of the buffer.
+ */
+void core_ota_get_project_version(char *out, size_t max);
+
+/**
+ * Confirm image validity after a successful OTA update.
+ *
+ * Should be called by the project firmware after successful startup
+ * to prevent automatic rollback on the next reboot.  When running
+ * from the core (factory) partition this is a no-op.
+ */
+void core_ota_confirm_image(void);
+
+/**
+ * Check if the current OTA image is pending verification and
+ * handle rollback if necessary.  Called during core boot.
+ */
+void core_ota_check_rollback(void);
+
+/**
  * Set the OTA request flag in NVS.
  *
  * Call from project firmware or BLE to request an OTA update

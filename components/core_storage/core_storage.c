@@ -171,3 +171,20 @@ esp_err_t core_storage_erase_key(const char *ns, const char *key)
     nvs_close(nvs);
     return err;
 }
+
+esp_err_t core_storage_erase_namespace(const char *ns)
+{
+    nvs_handle_t nvs;
+    esp_err_t err = nvs_open(ns, NVS_READWRITE, &nvs);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    err = nvs_erase_all(nvs);
+    if (err == ESP_OK) {
+        err = nvs_commit(nvs);
+    }
+
+    nvs_close(nvs);
+    return err;
+}

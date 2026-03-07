@@ -212,9 +212,8 @@ static int compare_versions(const char *current, const char *available)
 
 /**
  * Read the version string from the project firmware partition.
- * Falls back to "0.0.0" if no valid image is present.
- */
-static void get_current_project_version(char *out, size_t max)
+ * Falls back to \"0.0.0\" if no valid image is present.\n */
+void core_ota_get_project_version(char *out, size_t max)
 {
     const esp_partition_t *part = esp_partition_find_first(
         ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_ANY,
@@ -235,6 +234,51 @@ static void get_current_project_version(char *out, size_t max)
 
     strncpy(out, desc.version, max - 1);
     out[max - 1] = '\0';
+}
+
+/* ------------------------------------------------------------------ */
+/*  OTA rollback safety                                                */
+/* ------------------------------------------------------------------ */
+
+void core_ota_confirm_image(void)
+{
+    const esp_partition_t *running = esp_ota_get_running_partition();
+
+    /* Only relevant when running from an OTA partition */
+    if (running->subtype == ESP_PARTITION_SUBTYPE_APP_FACTORY) {
+        return;
+    }
+
+    esp_ota_img_states_t state;
+    if (esp_ota_get_state_partition(running, &state) != ESP_OK) {
+        return;
+    }
+
+    if (state == ESP_OTA_IMG_PENDING_VERIFY) {
+        ESP_LOGI(TAG, "Firmware marked valid");
+        esp_ota_mark_app_valid_cancel_rollback();
+    }
+}
+
+void core_ota_check_rollback(void)
+{
+    const esp_partition_t *running = esp_ota_get_running_partition();
+    ESP_LOGI(TAG, "Running from partition: %s", running->label);
+
+    /* Check if the OTA partition has a pending-verify image that
+     * failed to confirm itself.  If so, the bootloader already
+     * rolled back to factory on this boot. Just log it. */
+    const esp_partition_t *ota_part = esp_partition_find_first(
+        ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_APP_OTA_0, NULL);
+
+    if (ota_part) {
+        esp_ota_img_states_t state;
+        if (esp_ota_get_state_partition(ota_part, &state) == ESP_OK) {
+            if (state == ESP_OTA_IMG_ABORTED) {
+                ESP_LOGW(TAG, "Previous OTA firmware failed verification — rolled back");
+            }
+        }
+    }
 }
 
 /* ------------------------------------------------------------------ */
@@ -594,7 +638,7 @@ esp_err_t core_ota_check_and_update(void)
 
     /* Get current project firmware version */
     char current_version[VERSION_MAX] = {0};
-    get_current_project_version(current_version, sizeof(current_version));
+    core_ota_get_project_version(current_version, sizeof(current_version));
     ESP_LOGI(TAG, "Current version: %s", current_version);
 
     /* If bin_url is set, use the direct firmware URL (skip manifest) */

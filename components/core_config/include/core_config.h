@@ -169,4 +169,15 @@ bool core_config_validate(const core_config_t *cfg);
  */
 void core_config_enter_local_configure(void);
 
+/**
+ * Perform a factory reset.
+ *
+ * Erases all configuration data from NVS (WiFi, firmware, system
+ * settings) while preserving the device identity.
+ * Resets the in-memory configuration to safe defaults.
+ *
+ * @return ESP_OK on success, or an NVS error.
+ */
+esp_err_t core_config_factory_reset(void);
+
 #endif /* CORE_CONFIG_H */
