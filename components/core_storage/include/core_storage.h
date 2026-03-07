@@ -43,6 +43,9 @@
 /** uint32 – persistent boot counter */
 #define NVS_KEY_BOOT_COUNT "boot_cnt"
 
+/** uint8 – consecutive project firmware crash counter */
+#define NVS_KEY_PROJECT_CRASH_COUNT "proj_crash"
+
 /* ------------------------------------------------------------------ */
 /*  Initialization                                                     */
 /* ------------------------------------------------------------------ */

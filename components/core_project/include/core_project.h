@@ -17,6 +17,9 @@
 #include "esp_err.h"
 #include <stdbool.h>
 
+/** Max consecutive project crashes before entering recovery mode */
+#define MAX_PROJECT_CRASHES 3
+
 /**
  * Check if a project firmware partition exists on the flash.
  *
@@ -50,5 +53,17 @@ bool core_project_validate_image(void);
  * @return (other)                boot partition write error
  */
 esp_err_t core_project_launch(void);
+
+/**
+ * Check the reset reason and update the project crash counter.
+ *
+ * If the last reset was caused by a panic, task WDT, or interrupt WDT,
+ * the crash counter is incremented.  Otherwise it is reset to 0.
+ *
+ * @return true if the crash counter has reached or exceeded
+ *         MAX_PROJECT_CRASHES (caller should enter recovery mode),
+ *         false if it is safe to launch the project firmware.
+ */
+bool core_project_check_crash_loop(void);
 
 #endif // CORE_PROJECT_H

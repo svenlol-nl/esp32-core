@@ -9,9 +9,11 @@
  *   3. Load or generate device ID
  *   4. Load configuration
  *   5. Print device information
- *   6. OTA decision logic (request flag / scheduled check)
- *   7. Resolve boot state (local configure vs. project launch)
- *   8. Execute the chosen boot path
+ *   6. Rollback safety check
+ *   7. OTA decision logic (request flag / scheduled check)
+ *   8. Project crash-loop detection
+ *   9. Resolve boot state (local configure vs. project launch)
+ *  10. Execute the chosen boot path
  */
 
 #include "core_boot.h"
@@ -63,11 +65,21 @@ void app_main(void)
     /* 7. OTA decision logic (may restart if update is applied) */
     core_ota_run();
 
-    /* 8. Determine boot state */
+    /* 8. Project crash-loop detection */
+    bool crash_loop = core_project_check_crash_loop();
+
+    /* 9. Determine boot state */
     core_boot_state_t state = core_boot_resolve_state();
+
+    /* Override: crash threshold forces recovery mode */
+    if (crash_loop && state == CORE_START_PROJECT) {
+        ESP_LOGW(TAG, "Overriding boot state due to crash loop");
+        state = CORE_LOCAL_CONFIGURE;
+    }
+
     ESP_LOGI(TAG, "Boot mode: %s", core_boot_state_name(state));
 
-    /* 9. Execute the chosen boot path */
+    /* 10. Execute the chosen boot path */
     switch (state)
     {
     case CORE_LOCAL_CONFIGURE:

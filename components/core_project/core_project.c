@@ -140,3 +140,61 @@ esp_err_t core_project_launch(void)
     /* Never reached */
     return ESP_OK;
 }
+
+/* ------------------------------------------------------------------ */
+/*  Crash-loop detection                                               */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Return a human-readable label for the reset reason (for logging).
+ */
+static const char *reset_reason_str(esp_reset_reason_t reason)
+{
+    switch (reason) {
+        case ESP_RST_POWERON:  return "POWERON";
+        case ESP_RST_SW:       return "SW";
+        case ESP_RST_PANIC:    return "PANIC";
+        case ESP_RST_TASK_WDT: return "TASK_WDT";
+        case ESP_RST_INT_WDT:  return "INT_WDT";
+        case ESP_RST_WDT:      return "WDT";
+        case ESP_RST_DEEPSLEEP:return "DEEPSLEEP";
+        case ESP_RST_BROWNOUT: return "BROWNOUT";
+        case ESP_RST_SDIO:     return "SDIO";
+        default:               return "UNKNOWN";
+    }
+}
+
+bool core_project_check_crash_loop(void)
+{
+    esp_reset_reason_t reason = esp_reset_reason();
+    ESP_LOGI(TAG, "Reset reason: %s", reset_reason_str(reason));
+
+    /* Determine if the reset came from a crash */
+    bool is_crash = (reason == ESP_RST_PANIC   ||
+                     reason == ESP_RST_TASK_WDT ||
+                     reason == ESP_RST_INT_WDT);
+
+    uint8_t crash_count = 0;
+
+    if (is_crash) {
+        /* Read the current count (default 0 if key doesn't exist) */
+        core_storage_read_u8(NVS_NAMESPACE_CORE,
+                             NVS_KEY_PROJECT_CRASH_COUNT, &crash_count);
+        crash_count++;
+    }
+    /* Normal reset → counter goes back to 0 (crash_count already 0) */
+
+    ESP_LOGI(TAG, "Project crash count: %u", crash_count);
+
+    /* Persist the updated value */
+    core_storage_write_u8(NVS_NAMESPACE_CORE,
+                          NVS_KEY_PROJECT_CRASH_COUNT, crash_count);
+
+    if (crash_count >= MAX_PROJECT_CRASHES) {
+        ESP_LOGW(TAG, "Crash threshold reached");
+        ESP_LOGW(TAG, "Entering local configuration mode");
+        return true;
+    }
+
+    return false;
+}
