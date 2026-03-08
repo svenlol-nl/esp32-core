@@ -1,0 +1,105 @@
+/**
+ * app_main.c
+ *
+ * Entry point for the ESP32 Core Firmware.
+ *
+ * Boot sequence:
+ *   1. Print boot banner
+ *   2. Initialize NVS
+ *   3. Load or generate device ID
+ *   4. Load configuration
+ *   5. Print device information
+ *   6. Rollback safety check
+ *   7. OTA decision logic (request flag / scheduled check)
+ *   8. Project crash-loop detection
+ *   9. Resolve boot state (local configure vs. project launch)
+ *  10. Execute the chosen boot path
+ */
+
+#include "core_boot.h"
+#include "core_storage.h"
+#include "core_device.h"
+#include "core_project.h"
+#include "core_config.h"
+#include "core_ota.h"
+
+#include "esp_log.h"
+
+static const char *TAG = "CORE";
+
+void app_main(void)
+{
+    /* 1. Boot banner */
+    core_boot_print_banner();
+
+    /* 2. Initialize NVS storage */
+    esp_err_t err = core_storage_init();
+    if (err != ESP_OK)
+    {
+        ESP_LOGE(TAG, "Storage init failed — halting");
+        return;
+    }
+
+    /* 3. Load or generate device identity */
+    err = core_device_init();
+    if (err != ESP_OK)
+    {
+        ESP_LOGE(TAG, "Device init failed — halting");
+        return;
+    }
+
+    /* 4. Load configuration */
+    err = core_config_init();
+    if (err != ESP_OK)
+    {
+        ESP_LOGE(TAG, "Config init failed — halting");
+        return;
+    }
+
+    /* 5. Device info summary */
+    core_boot_print_device_info();
+
+    /* 6. Rollback safety check */
+    core_ota_check_rollback();
+
+    /* 7. OTA decision logic (may restart if update is applied) */
+    core_ota_run();
+
+    /* 8. Project crash-loop detection */
+    bool crash_loop = core_project_check_crash_loop();
+
+    /* 9. Determine boot state */
+    core_boot_state_t state = core_boot_resolve_state();
+
+    /* Override: crash threshold forces recovery mode */
+    if (crash_loop && state == CORE_START_PROJECT) {
+        ESP_LOGW(TAG, "Overriding boot state due to crash loop");
+        state = CORE_LOCAL_CONFIGURE;
+    }
+
+    ESP_LOGI(TAG, "Boot mode: %s", core_boot_state_name(state));
+
+    /* 10. Execute the chosen boot path */
+    switch (state)
+    {
+    case CORE_LOCAL_CONFIGURE:
+        core_config_enter_local_configure();
+        /* does not return */
+        break;
+
+    case CORE_START_PROJECT:
+        ESP_LOGI("PROJECT", "Launching project firmware");
+        err = core_project_launch();
+        if (err != ESP_OK)
+        {
+            ESP_LOGW(TAG, "Falling back to LOCAL_CONFIGURE mode");
+            core_config_enter_local_configure();
+            /* does not return */
+        }
+        break;
+
+    default:
+        ESP_LOGE(TAG, "Unknown boot state — halting");
+        break;
+    }
+}
