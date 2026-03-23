@@ -39,6 +39,7 @@
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
+#include "freertos/task.h"
 
 static const char *TAG = "OTA";
 
@@ -69,6 +70,12 @@ static const char *TAG = "OTA";
 
 /** Progress reporting interval (percentage points) */
 #define OTA_PROGRESS_STEP 20
+
+/** Stack size for OTA worker task (bytes). */
+#define OTA_TASK_STACK_SIZE 8192
+
+/** Priority for OTA worker task. */
+#define OTA_TASK_PRIORITY 5
 
 /* ------------------------------------------------------------------ */
 /*  WiFi connection for OTA                                            */
@@ -817,6 +824,41 @@ esp_err_t core_ota_check_and_update(void)
     return err;
 }
 
+typedef struct {
+    TaskHandle_t caller;
+    esp_err_t result;
+} ota_task_ctx_t;
+
+static void ota_check_task(void *arg)
+{
+    ota_task_ctx_t *ctx = (ota_task_ctx_t *)arg;
+    ctx->result = core_ota_check_and_update();
+    xTaskNotifyGive(ctx->caller);
+    vTaskDelete(NULL);
+}
+
+static esp_err_t run_ota_check_in_worker_task(void)
+{
+    ota_task_ctx_t ctx = {
+        .caller = xTaskGetCurrentTaskHandle(),
+        .result = ESP_FAIL,
+    };
+
+    BaseType_t created = xTaskCreate(ota_check_task,
+                                     "ota_worker",
+                                     OTA_TASK_STACK_SIZE,
+                                     &ctx,
+                                     OTA_TASK_PRIORITY,
+                                     NULL);
+    if (created != pdPASS) {
+        ESP_LOGE(TAG, "Failed to create OTA worker task");
+        return ESP_ERR_NO_MEM;
+    }
+
+    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    return ctx.result;
+}
+
 bool core_ota_run(void)
 {
     const core_config_t *cfg = core_config_get();
@@ -844,7 +886,7 @@ bool core_ota_run(void)
         core_storage_erase_key(NVS_NAMESPACE_CORE, NVS_KEY_OTA_REQUEST);
 
         ESP_LOGI(TAG, "Starting update process");
-        esp_err_t err = core_ota_check_and_update();
+        esp_err_t err = run_ota_check_in_worker_task();
         if (err == ESP_OK) {
             return true; /* device will restart */
         }
@@ -857,7 +899,7 @@ bool core_ota_run(void)
     if (boot_count > 0 && (boot_count % interval) == 0) {
         ESP_LOGI(TAG, "Performing scheduled update check");
 
-        esp_err_t err = core_ota_check_and_update();
+        esp_err_t err = run_ota_check_in_worker_task();
         if (err == ESP_OK) {
             return true; /* device will restart */
         }
