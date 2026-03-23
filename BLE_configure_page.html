@@ -1,0 +1,596 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ESP32 Core BLE Config</title>
+    <style>
+        :root {
+            color-scheme: dark;
+            --bg: #0f1115;
+            --panel: #171a21;
+            --panel-2: #1d2230;
+            --text: #eef2ff;
+            --muted: #a7b0c5;
+            --accent: #726BEE;
+            --danger: #e35d6a;
+            --success: #41c67a;
+            --border: #2a3142;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            font-family: Inter, system-ui, Arial, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+        }
+
+        .wrap {
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 24px;
+        }
+
+        h1,
+        h2 {
+            margin: 0 0 12px;
+        }
+
+        p {
+            color: var(--muted);
+            margin-top: 0;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: 1.2fr 1fr;
+            gap: 20px;
+        }
+
+        .card {
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 18px;
+        }
+
+        .row {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-bottom: 14px;
+        }
+
+        button {
+            background: var(--accent);
+            color: white;
+            border: 0;
+            border-radius: 10px;
+            padding: 10px 14px;
+            font: inherit;
+            cursor: pointer;
+        }
+
+        button.secondary {
+            background: var(--panel-2);
+            border: 1px solid var(--border);
+        }
+
+        button.danger {
+            background: var(--danger);
+        }
+
+        button:disabled {
+            opacity: 0.55;
+            cursor: not-allowed;
+        }
+
+        label {
+            display: block;
+            margin: 10px 0 6px;
+            color: var(--muted);
+            font-size: 14px;
+        }
+
+        input,
+        select,
+        textarea {
+            width: 100%;
+            background: #0f1320;
+            color: var(--text);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 10px 12px;
+            font: inherit;
+        }
+
+        textarea {
+            min-height: 170px;
+            resize: vertical;
+        }
+
+        .status-pill {
+            display: inline-block;
+            padding: 6px 10px;
+            border-radius: 999px;
+            background: var(--panel-2);
+            border: 1px solid var(--border);
+            color: var(--muted);
+            font-size: 14px;
+        }
+
+        .mono {
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+            font-size: 13px;
+        }
+
+        .log {
+            background: #0b0f18;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 12px;
+            min-height: 240px;
+            max-height: 500px;
+            overflow: auto;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        .ok {
+            color: var(--success);
+        }
+
+        .err {
+            color: var(--danger);
+        }
+
+        .muted {
+            color: var(--muted);
+        }
+
+        .kv {
+            display: grid;
+            grid-template-columns: 140px 1fr;
+            gap: 8px 12px;
+            align-items: center;
+            margin-top: 12px;
+        }
+
+        .hint {
+            font-size: 13px;
+            color: var(--muted);
+            margin-top: 8px;
+        }
+
+        @media (max-width: 900px) {
+            .grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="wrap">
+        <h1>ESP32 Core BLE Config</h1>
+        <p> Desktop Web Bluetooth configurator for your ESP32 core firmware. </p>
+        <div class="row"> <button id="connectBtn">Connect device</button> <button id="disconnectBtn" class="secondary"
+                disabled>Disconnect</button> <button id="readBtn" class="secondary" disabled>Read config</button>
+            <button id="saveBtn" disabled>Save config</button> <span id="connectionState"
+                class="status-pill">Disconnected</span>
+        </div>
+        <div class="grid">
+            <div class="card">
+                <h2>Config</h2> <label for="wifiSsid">WiFi SSID</label> <input id="wifiSsid" type="text"
+                    placeholder="Your WiFi SSID" /> <label for="wifiPassword">WiFi Password</label> <input
+                    id="wifiPassword" type="text" placeholder="Your WiFi password" /> <label for="fwProject">Firmware
+                    Project</label> <input id="fwProject" type="text" placeholder="e.g. weather-station" /> <label
+                    for="fwChannel">Firmware Channel</label> <select id="fwChannel">
+                    <option value="stable">stable</option>
+                    <option value="beta">beta</option>
+                    <option value="dev">dev</option>
+                </select> <label for="localConfigureEnabled">Local Configure
+                    Enabled</label> <select id="localConfigureEnabled">
+                    <option value="0">0</option>
+                    <option value="1">1</option>
+                </select>
+                <div class="hint"> Save sends the full JSON config to the <span class="mono">config_write</span>
+                    characteristic. </div> <label for="rawConfig">Raw JSON</label> <textarea id="rawConfig" class="mono"
+                    placeholder='{ "wifi": { "ssid": "", "password": "" }, "firmware": { "project": "", "channel": "stable" }, "system": { "local_configure_enabled": 0 } }'></textarea>
+                <div class="row" style="margin-top: 14px;"> <button id="fromFieldsBtn" class="secondary" disabled>Build
+                        JSON from fields</button> <button id="toFieldsBtn" class="secondary" disabled>Load fields from
+                        JSON</button> </div>
+            </div>
+            <div class="card">
+                <h2>Device</h2>
+                <div class="kv mono">
+                    <div>Name</div>
+                    <div id="deviceName">-</div>
+                    <div>Service</div>
+                    <div>12340001-0000-1000-8000-00805f9b34fb</div>
+                    <div>Status notify</div>
+                    <div id="notifyState">Disabled</div>
+                </div>
+                <h2 style="margin-top: 20px;">Commands</h2>
+                <div class="row"> <button id="deviceInfoBtn" class="secondary" disabled>Get device info</button> <button
+                        id="rebootBtn" class="secondary" disabled>Reboot</button> <button id="otaBtn" class="secondary"
+                        disabled>Start OTA</button> </div>
+                <div class="row"> <button id="enableLocalBtn" class="secondary" disabled>Enable local configure</button>
+                    <button id="disableLocalBtn" class="secondary" disabled>Disable local configure</button> <button
+                        id="factoryResetBtn" class="danger" disabled>Factory reset</button>
+                </div>
+                <h2 style="margin-top: 20px;">Log</h2>
+                <div id="log" class="log mono"></div>
+            </div>
+        </div>
+    </div>
+    <script>
+        const UUIDS = {
+            service: '12340001-0000-1000-8000-00805f9b34fb',
+            configRead: '12340002-0000-1000-8000-00805f9b34fb',
+            configWrite: '12340003-0000-1000-8000-00805f9b34fb',
+            command: '12340004-0000-1000-8000-00805f9b34fb',
+            status: '12340005-0000-1000-8000-00805f9b34fb',
+        };
+
+        const VALID_CHANNELS = new Set(['stable', 'beta', 'dev']);
+        const CONFIG_WRITE_MAX_BYTES = 1024;
+
+        let bleDevice = null;
+        let bleServer = null;
+        let configReadChar = null;
+        let configWriteChar = null;
+        let commandChar = null;
+        let statusChar = null;
+
+        const enc = new TextEncoder();
+        const dec = new TextDecoder();
+
+        const els = {
+            connectBtn: document.getElementById('connectBtn'),
+            disconnectBtn: document.getElementById('disconnectBtn'),
+            readBtn: document.getElementById('readBtn'),
+            saveBtn: document.getElementById('saveBtn'),
+            fromFieldsBtn: document.getElementById('fromFieldsBtn'),
+            toFieldsBtn: document.getElementById('toFieldsBtn'),
+            deviceInfoBtn: document.getElementById('deviceInfoBtn'),
+            rebootBtn: document.getElementById('rebootBtn'),
+            otaBtn: document.getElementById('otaBtn'),
+            enableLocalBtn: document.getElementById('enableLocalBtn'),
+            disableLocalBtn: document.getElementById('disableLocalBtn'),
+            factoryResetBtn: document.getElementById('factoryResetBtn'),
+            connectionState: document.getElementById('connectionState'),
+            notifyState: document.getElementById('notifyState'),
+            deviceName: document.getElementById('deviceName'),
+            log: document.getElementById('log'),
+            wifiSsid: document.getElementById('wifiSsid'),
+            wifiPassword: document.getElementById('wifiPassword'),
+            fwProject: document.getElementById('fwProject'),
+            fwChannel: document.getElementById('fwChannel'),
+            localConfigureEnabled: document.getElementById('localConfigureEnabled'),
+            rawConfig: document.getElementById('rawConfig'),
+        };
+
+        function log(message, type = 'normal') {
+            const time = new Date().toLocaleTimeString();
+            const line = document.createElement('div');
+            if (type === 'ok') line.className = 'ok';
+            if (type === 'err') line.className = 'err';
+            if (type === 'muted') line.className = 'muted';
+            line.textContent = `[${time}] ${message}`;
+            els.log.appendChild(line);
+            els.log.scrollTop = els.log.scrollHeight;
+        }
+
+        function setConnectedUI(connected) {
+            els.connectionState.textContent = connected ? 'Connected' : 'Disconnected';
+            els.disconnectBtn.disabled = !connected;
+            els.readBtn.disabled = !connected;
+            els.saveBtn.disabled = !connected;
+            els.fromFieldsBtn.disabled = !connected;
+            els.toFieldsBtn.disabled = !connected;
+            els.deviceInfoBtn.disabled = !connected;
+            els.rebootBtn.disabled = !connected;
+            els.otaBtn.disabled = !connected;
+            els.enableLocalBtn.disabled = !connected;
+            els.disableLocalBtn.disabled = !connected;
+            els.factoryResetBtn.disabled = !connected;
+        }
+
+        function buildConfigFromFields() {
+            return {
+                wifi: {
+                    ssid: els.wifiSsid.value,
+                    password: els.wifiPassword.value,
+                },
+                firmware: {
+                    project: els.fwProject.value,
+                    channel: els.fwChannel.value,
+                },
+                system: {
+                    local_configure_enabled: Number(els.localConfigureEnabled.value),
+                },
+            };
+        }
+
+        function loadFieldsFromConfig(cfg) {
+            els.wifiSsid.value = cfg?.wifi?.ssid ?? '';
+            els.wifiPassword.value = cfg?.wifi?.password ?? '';
+            els.fwProject.value = cfg?.firmware?.project ?? '';
+            els.fwChannel.value = cfg?.firmware?.channel ?? 'stable';
+            els.localConfigureEnabled.value = String(cfg?.system?.local_configure_enabled ?? 0);
+        }
+
+        function updateRawJsonFromFields() {
+            const cfg = buildConfigFromFields();
+            els.rawConfig.value = JSON.stringify(cfg, null, 2);
+        }
+
+        function updateFieldsFromRawJson() {
+            const parsed = JSON.parse(els.rawConfig.value);
+            loadFieldsFromConfig(parsed);
+        }
+
+        function validateConfigForFirmware(cfg, encodedBytesLen) {
+            if (!cfg || typeof cfg !== 'object') {
+                return 'Root JSON must be an object.';
+            }
+
+            const ssid = cfg?.wifi?.ssid;
+            if (typeof ssid !== 'string' || ssid.trim().length === 0) {
+                return 'wifi.ssid is required and cannot be empty.';
+            }
+
+            const channel = cfg?.firmware?.channel;
+            if (typeof channel === 'string' && channel.length > 0 && !VALID_CHANNELS.has(channel)) {
+                return 'firmware.channel must be one of: stable, beta, dev.';
+            }
+
+            if (encodedBytesLen > CONFIG_WRITE_MAX_BYTES) {
+                return `Config payload is too large (${encodedBytesLen} bytes). Max is ${CONFIG_WRITE_MAX_BYTES} bytes.`;
+            }
+
+            return null;
+        }
+
+        function writeUtf8(char, text) {
+            const bytes = enc.encode(text);
+            if (char.writeValueWithResponse) {
+                return char.writeValueWithResponse(bytes);
+            }
+            return char.writeValue(bytes);
+        }
+
+        async function connect() {
+            if (!navigator.bluetooth) {
+                throw new Error('Web Bluetooth is not supported in this browser.');
+            }
+
+            log('Requesting BLE device...');
+            bleDevice = await navigator.bluetooth.requestDevice({
+                filters: [{ services: [UUIDS.service] }],
+                optionalServices: [UUIDS.service],
+            });
+
+            bleDevice.addEventListener('gattserverdisconnected', onDisconnected);
+            els.deviceName.textContent = bleDevice.name || '(no name)';
+            log(`Selected device: ${bleDevice.name || 'unknown'}`);
+
+            bleServer = await bleDevice.gatt.connect();
+            log('Connected to GATT server', 'ok');
+
+            const service = await bleServer.getPrimaryService(UUIDS.service);
+            configReadChar = await service.getCharacteristic(UUIDS.configRead);
+            configWriteChar = await service.getCharacteristic(UUIDS.configWrite);
+            commandChar = await service.getCharacteristic(UUIDS.command);
+            statusChar = await service.getCharacteristic(UUIDS.status);
+
+            try {
+                await statusChar.startNotifications();
+                statusChar.addEventListener('characteristicvaluechanged', onStatusNotification);
+                els.notifyState.textContent = 'Enabled';
+                log('Status notifications enabled', 'ok');
+            } catch (err) {
+                els.notifyState.textContent = 'Failed';
+                log(`Could not enable notifications: ${err.message}`, 'err');
+            }
+
+            setConnectedUI(true);
+        }
+
+        function onDisconnected() {
+            log('Device disconnected', 'muted');
+            bleServer = null;
+            configReadChar = null;
+            configWriteChar = null;
+            commandChar = null;
+            statusChar = null;
+            els.notifyState.textContent = 'Disabled';
+            els.deviceName.textContent = '-';
+            setConnectedUI(false);
+        }
+
+        async function disconnect() {
+            if (bleDevice?.gatt?.connected) {
+                bleDevice.gatt.disconnect();
+            }
+        }
+
+        function onStatusNotification(event) {
+            const value = event.target.value;
+            const text = dec.decode(value);
+
+            try {
+                const parsed = JSON.parse(text);
+                if (parsed.error) {
+                    log(`Status error: ${parsed.error}`, 'err');
+                    return;
+                }
+
+                log(`Status notify: ${text}`, 'ok');
+                if (parsed.device_id || parsed.core_version || parsed.project_version) {
+                    log('Device info received', 'ok');
+                }
+                return;
+            } catch (_) {
+                log(`Status notify: ${text}`, 'ok');
+            }
+        }
+
+        async function readConfig() {
+            const value = await configReadChar.readValue();
+            const text = dec.decode(value);
+            log(`Config received: ${text}`, 'ok');
+            els.rawConfig.value = text;
+
+            try {
+                const parsed = JSON.parse(text);
+                loadFieldsFromConfig(parsed);
+            } catch (err) {
+                log(`Could not parse config JSON: ${err.message}`, 'err');
+            }
+        }
+
+        async function saveConfig() {
+            let text = els.rawConfig.value.trim();
+            let parsed;
+
+            try {
+                parsed = JSON.parse(text);
+            } catch (err) {
+                throw new Error(`Invalid JSON: ${err.message}`);
+            }
+
+            text = JSON.stringify(parsed);
+            const bytesLen = enc.encode(text).length;
+            const validationError = validateConfigForFirmware(parsed, bytesLen);
+            if (validationError) {
+                throw new Error(validationError);
+            }
+
+            try {
+                await writeUtf8(configWriteChar, text);
+                log('Config written', 'ok');
+            } catch (err) {
+                throw new Error(`${err.message}. Check status notifications for firmware error details.`);
+            }
+        }
+
+        async function sendCommand(command) {
+            const payload = JSON.stringify({ command });
+            await writeUtf8(commandChar, payload);
+            log(`Command sent: ${payload}`, 'ok');
+        }
+
+        els.connectBtn.addEventListener('click', async () => {
+            try {
+                await connect();
+            } catch (err) {
+                log(`Connect failed: ${err.message}`, 'err');
+            }
+        });
+
+        els.disconnectBtn.addEventListener('click', async () => {
+            try {
+                await disconnect();
+            } catch (err) {
+                log(`Disconnect failed: ${err.message}`, 'err');
+            }
+        });
+
+        els.readBtn.addEventListener('click', async () => {
+            try {
+                await readConfig();
+            } catch (err) {
+                log(`Read failed: ${err.message}`, 'err');
+            }
+        });
+
+        els.saveBtn.addEventListener('click', async () => {
+            try {
+                await saveConfig();
+            } catch (err) {
+                log(`Save failed: ${err.message}`, 'err');
+            }
+        });
+
+        els.fromFieldsBtn.addEventListener('click', () => {
+            try {
+                updateRawJsonFromFields();
+                log('Built JSON from fields');
+            } catch (err) {
+                log(`Build JSON failed: ${err.message}`, 'err');
+            }
+        });
+
+        els.toFieldsBtn.addEventListener('click', () => {
+            try {
+                updateFieldsFromRawJson();
+                log('Loaded fields from JSON');
+            } catch (err) {
+                log(`Load fields failed: ${err.message}`, 'err');
+            }
+        });
+
+        els.deviceInfoBtn.addEventListener('click', async () => {
+            try {
+                await sendCommand('get_device_info');
+            } catch (err) {
+                log(`Command failed: ${err.message}`, 'err');
+            }
+        });
+
+        els.rebootBtn.addEventListener('click', async () => {
+            try {
+                await sendCommand('reboot');
+            } catch (err) {
+                log(`Command failed: ${err.message}`, 'err');
+            }
+        });
+
+        els.otaBtn.addEventListener('click', async () => {
+            try {
+                await sendCommand('start_ota');
+            } catch (err) {
+                log(`Command failed: ${err.message}`, 'err');
+            }
+        });
+
+        els.enableLocalBtn.addEventListener('click', async () => {
+            try {
+                await sendCommand('enable_local_configure');
+            } catch (err) {
+                log(`Command failed: ${err.message}`, 'err');
+            }
+        });
+
+        els.disableLocalBtn.addEventListener('click', async () => {
+            try {
+                await sendCommand('disable_local_configure');
+            } catch (err) {
+                log(`Command failed: ${err.message}`, 'err');
+            }
+        });
+
+        els.factoryResetBtn.addEventListener('click', async () => {
+            const ok = confirm('Are you sure you want to factory reset this device?');
+            if (!ok) return;
+
+            try {
+                await sendCommand('factory_reset');
+            } catch (err) {
+                log(`Command failed: ${err.message}`, 'err');
+            }
+        });
+
+        setConnectedUI(false);
+        updateRawJsonFromFields();
+    </script>
+</body>
+
+</html>
