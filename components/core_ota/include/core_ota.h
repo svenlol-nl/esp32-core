@@ -6,7 +6,7 @@
  * Handles:
  *   - OTA request flag (set by project firmware or BLE command)
  *   - Boot counter for scheduled fallback update checks
- *   - Firmware manifest retrieval and version comparison
+ *   - Firmware manifest retrieval and hash comparison
  *   - OTA update execution via esp_https_ota
  *
  * The OTA system runs during core boot, before boot state resolution.
@@ -80,8 +80,9 @@ bool core_ota_run(void);
 /**
  * Check for firmware updates and apply if available.
  *
- * Connects to WiFi, fetches the firmware manifest, compares
- * versions, and downloads if newer.
+ * Connects to WiFi, fetches the firmware manifest (or uses a
+ * direct bin_url), compares firmware hashes, and downloads when
+ * the hash differs.
  * On successful update the device restarts (does not return).
  *
  * @return ESP_ERR_NOT_FOUND if firmware is up to date,

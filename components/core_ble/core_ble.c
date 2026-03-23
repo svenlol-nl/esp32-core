@@ -153,6 +153,8 @@ static char *config_to_json(void)
     {
         cJSON_AddNumberToObject(sys, "local_configure_enabled",
                                 cfg->system.local_configure_enabled);
+        cJSON_AddNumberToObject(sys, "ota_check_interval_boots",
+                                cfg->system.ota_check_interval_boots);
     }
 
     char *json = cJSON_PrintUnformatted(root);
@@ -222,6 +224,12 @@ static esp_err_t json_to_config(const char *json, size_t len,
         if (cJSON_IsNumber(lcfg))
         {
             out->system.local_configure_enabled = (uint8_t)lcfg->valueint;
+        }
+
+        cJSON *ota_int = cJSON_GetObjectItem(sys, "ota_check_interval_boots");
+        if (cJSON_IsNumber(ota_int) && ota_int->valueint > 0)
+        {
+            out->system.ota_check_interval_boots = (uint32_t)ota_int->valueint;
         }
     }
 
