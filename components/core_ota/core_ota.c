@@ -35,6 +35,7 @@
 #include "esp_event.h"
 #include "esp_system.h"
 #include "cJSON.h"
+#include "mbedtls/sha256.h"
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
@@ -47,11 +48,17 @@ static const char *TAG = "OTA";
 /** Maximum length of a constructed manifest URL */
 #define MANIFEST_URL_MAX 512
 
+/** Maximum length of resolved firmware binary URL from manifest */
+#define FIRMWARE_URL_MAX 512
+
 /** Maximum size of the manifest JSON response body */
 #define MANIFEST_BODY_MAX 1024
 
 /** Maximum length of a version string */
 #define VERSION_MAX 32
+
+/** SHA-256 hex string length (64 chars + null terminator) */
+#define SHA256_HEX_LEN 65
 
 /** Base URL for the firmware server */
 #define FIRMWARE_BASE_URL "https://firmware.sven.lol"
@@ -206,6 +213,50 @@ static int compare_versions(const char *current, const char *available)
     return avl_patch - cur_patch;
 }
 
+/**
+ * Convert binary SHA-256 digest to lowercase hex string.
+ */
+static void sha256_to_hex(const uint8_t *digest, char *out_hex, size_t out_size)
+{
+    static const char *hex = "0123456789abcdef";
+
+    if (!digest || !out_hex || out_size < SHA256_HEX_LEN) {
+        return;
+    }
+
+    for (size_t i = 0; i < 32; i++) {
+        out_hex[i * 2] = hex[(digest[i] >> 4) & 0x0F];
+        out_hex[i * 2 + 1] = hex[digest[i] & 0x0F];
+    }
+    out_hex[64] = '\0';
+}
+
+/**
+ * Validate that a hash is exactly 64 hex characters.
+ */
+static bool is_valid_sha256_hex(const char *hash)
+{
+    if (!hash) {
+        return false;
+    }
+
+    if (strlen(hash) != 64) {
+        return false;
+    }
+
+    for (size_t i = 0; i < 64; i++) {
+        char c = hash[i];
+        bool is_digit = (c >= '0' && c <= '9');
+        bool is_lower = (c >= 'a' && c <= 'f');
+        bool is_upper = (c >= 'A' && c <= 'F');
+        if (!is_digit && !is_lower && !is_upper) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 /* ------------------------------------------------------------------ */
 /*  Current project firmware version                                   */
 /* ------------------------------------------------------------------ */
@@ -291,7 +342,8 @@ void core_ota_check_rollback(void)
  */
 static esp_err_t fetch_manifest(const char *url,
                                 char *version_out, size_t version_max,
-                                char *bin_url_out, size_t bin_url_max)
+                                char *firmware_url_out, size_t firmware_url_max,
+                                char *firmware_sha256_out, size_t firmware_sha256_max)
 {
     char *body = malloc(MANIFEST_BODY_MAX);
     if (!body) return ESP_ERR_NO_MEM;
@@ -349,9 +401,12 @@ static esp_err_t fetch_manifest(const char *url,
 
     cJSON *version = cJSON_GetObjectItem(root, "version");
     cJSON *bin = cJSON_GetObjectItem(root, "bin");
+    cJSON *sha256 = cJSON_GetObjectItem(root, "sha256");
 
     if (!cJSON_IsString(version) || !version->valuestring ||
-        !cJSON_IsString(bin) || !bin->valuestring) {
+        !cJSON_IsString(bin) || !bin->valuestring ||
+        !cJSON_IsString(sha256) || !sha256->valuestring ||
+        !is_valid_sha256_hex(sha256->valuestring)) {
         ESP_LOGW(TAG, "Invalid manifest format");
         cJSON_Delete(root);
         return ESP_FAIL;
@@ -359,8 +414,10 @@ static esp_err_t fetch_manifest(const char *url,
 
     strncpy(version_out, version->valuestring, version_max - 1);
     version_out[version_max - 1] = '\0';
-    strncpy(bin_url_out, bin->valuestring, bin_url_max - 1);
-    bin_url_out[bin_url_max - 1] = '\0';
+    strncpy(firmware_url_out, bin->valuestring, firmware_url_max - 1);
+    firmware_url_out[firmware_url_max - 1] = '\0';
+    strncpy(firmware_sha256_out, sha256->valuestring, firmware_sha256_max - 1);
+    firmware_sha256_out[firmware_sha256_max - 1] = '\0';
 
     cJSON_Delete(root);
     return ESP_OK;
@@ -441,7 +498,8 @@ static const esp_partition_t *ota_get_target_partition(void)
  * On any failure the update is aborted and the current firmware
  * remains intact.
  */
-static esp_err_t perform_ota_update(const char *firmware_url)
+static esp_err_t perform_ota_update(const char *firmware_url,
+                                    const char *expected_sha256)
 {
     ESP_LOGI(TAG, "Starting firmware download");
     ota_notify_status("{\"ota\":\"download_started\"}");
@@ -516,6 +574,12 @@ static esp_err_t perform_ota_update(const char *firmware_url)
 
     int total_read = 0;
     int last_progress = 0;
+    mbedtls_sha256_context sha256_ctx;
+    uint8_t digest[32] = {0};
+    char digest_hex[SHA256_HEX_LEN] = {0};
+
+    mbedtls_sha256_init(&sha256_ctx);
+    mbedtls_sha256_starts(&sha256_ctx, 0);
 
     while (true) {
         int read_len = esp_http_client_read(client, buf, OTA_BUF_SIZE);
@@ -546,6 +610,10 @@ static esp_err_t perform_ota_update(const char *firmware_url)
             return err;
         }
 
+        mbedtls_sha256_update(&sha256_ctx,
+                              (const unsigned char *)buf,
+                              read_len);
+
         total_read += read_len;
 
         /* Report progress */
@@ -563,6 +631,21 @@ static esp_err_t perform_ota_update(const char *firmware_url)
     free(buf);
     esp_http_client_close(client);
     esp_http_client_cleanup(client);
+
+    mbedtls_sha256_finish(&sha256_ctx, digest);
+    mbedtls_sha256_free(&sha256_ctx);
+    sha256_to_hex(digest, digest_hex, sizeof(digest_hex));
+
+    if (strcmp(digest_hex, expected_sha256) != 0) {
+        ESP_LOGE(TAG, "Firmware hash mismatch");
+        ESP_LOGE(TAG, "Expected: %s", expected_sha256);
+        ESP_LOGE(TAG, "Actual  : %s", digest_hex);
+        ota_notify_status("{\"ota\":\"failed\",\"reason\":\"hash mismatch\"}");
+        esp_ota_abort(ota_handle);
+        return ESP_ERR_INVALID_CRC;
+    }
+
+    ESP_LOGI(TAG, "Firmware hash verified");
 
     ESP_LOGI(TAG, "Firmware successfully written (%d bytes)", total_read);
     ota_notify_status("{\"ota\":\"flashing\"}");
@@ -641,18 +724,6 @@ esp_err_t core_ota_check_and_update(void)
     core_ota_get_project_version(current_version, sizeof(current_version));
     ESP_LOGI(TAG, "Current version: %s", current_version);
 
-    /* If bin_url is set, use the direct firmware URL (skip manifest) */
-    if (cfg->firmware.bin_url[0] != '\0') {
-        ESP_LOGI(TAG, "Using direct firmware URL");
-        err = perform_ota_update(cfg->firmware.bin_url);
-        ota_wifi_disconnect();
-        if (err == ESP_OK) {
-            ESP_LOGI("CORE", "Rebooting device");
-            esp_restart();
-        }
-        return err;
-    }
-
     /* Need firmware.project to construct the manifest URL */
     if (cfg->firmware.project[0] == '\0') {
         ESP_LOGW(TAG, "No firmware project configured");
@@ -668,11 +739,13 @@ esp_err_t core_ota_check_and_update(void)
 
     /* Fetch manifest */
     char available_version[VERSION_MAX] = {0};
-    char firmware_url[CONFIG_FW_BIN_URL_MAX] = {0};
+    char firmware_url[FIRMWARE_URL_MAX] = {0};
+    char firmware_sha256[SHA256_HEX_LEN] = {0};
 
     err = fetch_manifest(manifest_url,
                          available_version, sizeof(available_version),
-                         firmware_url, sizeof(firmware_url));
+                         firmware_url, sizeof(firmware_url),
+                         firmware_sha256, sizeof(firmware_sha256));
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "Failed to fetch manifest");
         ota_wifi_disconnect();
@@ -690,7 +763,7 @@ esp_err_t core_ota_check_and_update(void)
 
     /* New version available — start OTA */
     ESP_LOGI(TAG, "New version available, starting update");
-    err = perform_ota_update(firmware_url);
+    err = perform_ota_update(firmware_url, firmware_sha256);
     ota_wifi_disconnect();
 
     if (err == ESP_OK) {
