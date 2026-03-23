@@ -145,7 +145,6 @@ static char *config_to_json(void)
     {
         cJSON_AddStringToObject(fw, "project", cfg->firmware.project);
         cJSON_AddStringToObject(fw, "channel", cfg->firmware.channel);
-        cJSON_AddStringToObject(fw, "bin_url", cfg->firmware.bin_url);
     }
 
     /* system */
@@ -213,13 +212,6 @@ static esp_err_t json_to_config(const char *json, size_t len,
             strncpy(out->firmware.channel, chan->valuestring,
                     sizeof(out->firmware.channel) - 1);
             out->firmware.channel[sizeof(out->firmware.channel) - 1] = '\0';
-        }
-        cJSON *url = cJSON_GetObjectItem(fw, "bin_url");
-        if (cJSON_IsString(url) && url->valuestring)
-        {
-            strncpy(out->firmware.bin_url, url->valuestring,
-                    sizeof(out->firmware.bin_url) - 1);
-            out->firmware.bin_url[sizeof(out->firmware.bin_url) - 1] = '\0';
         }
     }
 

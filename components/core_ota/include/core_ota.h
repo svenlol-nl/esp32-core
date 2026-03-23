@@ -80,8 +80,8 @@ bool core_ota_run(void);
 /**
  * Check for firmware updates and apply if available.
  *
- * Connects to WiFi, fetches the firmware manifest (or uses a
- * direct bin_url), compares versions, and downloads if newer.
+ * Connects to WiFi, fetches the firmware manifest, compares
+ * versions, and downloads if newer.
  * On successful update the device restarts (does not return).
  *
  * @return ESP_ERR_NOT_FOUND if firmware is up to date,

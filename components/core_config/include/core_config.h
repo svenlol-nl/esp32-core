@@ -28,7 +28,6 @@
 #define CONFIG_WIFI_PASSWORD_MAX  65   /* 64 chars + null */
 #define CONFIG_FW_PROJECT_MAX     33   /* project name */
 #define CONFIG_FW_CHANNEL_MAX     17   /* release channel */
-#define CONFIG_FW_BIN_URL_MAX     256  /* optional binary URL */
 
 /* ------------------------------------------------------------------ */
 /*  Known firmware channels                                            */
@@ -56,7 +55,6 @@ typedef struct {
 typedef struct {
     char project[CONFIG_FW_PROJECT_MAX];
     char channel[CONFIG_FW_CHANNEL_MAX];
-    char bin_url[CONFIG_FW_BIN_URL_MAX];
 } core_config_firmware_t;
 
 /**
@@ -72,7 +70,7 @@ typedef struct {
  * Mirrors a JSON-friendly layout:
  * {
  *   "wifi":     { "ssid": "", "password": "" },
- *   "firmware": { "project": "", "channel": "", "bin_url": "" },
+ *   "firmware": { "project": "", "channel": "" },
  *   "system":   { "local_configure_enabled": 0 }
  * }
  */

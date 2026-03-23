@@ -10,8 +10,6 @@
  * Validation rules:
  *   - wifi.ssid      : must not be empty (if wifi section is used)
  *   - firmware.channel: must be one of "stable", "beta", "dev"
- *   - firmware.bin_url: optional, but if set it must start with
- *                       "http://" or "https://"
  */
 
 #include "core_config.h"
@@ -33,7 +31,6 @@ static const char *TAG = "CONFIG";
 #define NVS_KEY_WIFI_PASS        "wifi_pass"
 #define NVS_KEY_FW_PROJECT       "fw_proj"
 #define NVS_KEY_FW_CHANNEL       "fw_chan"
-#define NVS_KEY_FW_BIN_URL       "fw_url"
 /* local_configure_enabled reuses NVS_KEY_LOCAL_CONFIGURE ("local_cfg") */
 
 /* ------------------------------------------------------------------ */
@@ -93,8 +90,6 @@ esp_err_t core_config_init(void)
              sizeof(s_config.firmware.project));
     load_str(NVS_KEY_FW_CHANNEL, s_config.firmware.channel,
              sizeof(s_config.firmware.channel));
-    load_str(NVS_KEY_FW_BIN_URL, s_config.firmware.bin_url,
-             sizeof(s_config.firmware.bin_url));
 
     /* local_configure_enabled is stored as u8 */
     core_storage_read_u8(NVS_NAMESPACE_CORE, NVS_KEY_LOCAL_CONFIGURE,
@@ -108,8 +103,6 @@ esp_err_t core_config_init(void)
     ESP_LOGI(TAG, "  firmware.project : %s",
              s_config.firmware.project[0] ? s_config.firmware.project : "(not set)");
     ESP_LOGI(TAG, "  firmware.channel : %s", s_config.firmware.channel);
-    ESP_LOGI(TAG, "  firmware.bin_url : %s",
-             s_config.firmware.bin_url[0] ? s_config.firmware.bin_url : "(not set)");
     ESP_LOGI(TAG, "  system.local_cfg : %u",
              s_config.system.local_configure_enabled);
 
@@ -168,16 +161,6 @@ bool core_config_validate(const core_config_t *cfg)
         ok = false;
     }
 
-    /* firmware.bin_url — optional but must look like a URL if present */
-    if (cfg->firmware.bin_url[0] != '\0') {
-        if (strncmp(cfg->firmware.bin_url, "http://", 7) != 0
-            && strncmp(cfg->firmware.bin_url, "https://", 8) != 0) {
-            ESP_LOGW(TAG, "Invalid configuration: firmware.bin_url"
-                          " must start with http:// or https://");
-            ok = false;
-        }
-    }
-
     return ok;
 }
 
@@ -213,9 +196,6 @@ esp_err_t core_config_save(void)
     if (err != ESP_OK) return err;
 
     err = save_str(NVS_KEY_FW_CHANNEL, s_config.firmware.channel);
-    if (err != ESP_OK) return err;
-
-    err = save_str(NVS_KEY_FW_BIN_URL, s_config.firmware.bin_url);
     if (err != ESP_OK) return err;
 
     err = core_storage_write_u8(NVS_NAMESPACE_CORE, NVS_KEY_LOCAL_CONFIGURE,
