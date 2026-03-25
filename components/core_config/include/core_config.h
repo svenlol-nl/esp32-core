@@ -29,6 +29,11 @@
 #define CONFIG_FW_PROJECT_MAX     33   /* project name */
 #define CONFIG_FW_CHANNEL_MAX     17   /* release channel */
 
+/* OTA fallback check interval (in boots) */
+#define CONFIG_OTA_INTERVAL_MIN       1U
+#define CONFIG_OTA_INTERVAL_MAX       10000U
+#define CONFIG_OTA_INTERVAL_DEFAULT   50U
+
 /* ------------------------------------------------------------------ */
 /*  Known firmware channels                                            */
 /* ------------------------------------------------------------------ */
@@ -62,6 +67,7 @@ typedef struct {
  */
 typedef struct {
     uint8_t local_configure_enabled;   /**< 1 = force LOCAL_CONFIGURE on boot */
+    uint32_t ota_check_interval_boots; /**< Force OTA check every N boots */
 } core_config_system_t;
 
 /**

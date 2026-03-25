@@ -6,7 +6,7 @@
  * Handles:
  *   - OTA request flag (set by project firmware or BLE command)
  *   - Boot counter for scheduled fallback update checks
- *   - Firmware manifest retrieval and version comparison
+ *   - Firmware manifest retrieval and hash comparison
  *   - Firmware download with progress tracking
  *   - Incremental flash writing via esp_ota APIs
  *   - Image validation and boot partition switching
@@ -39,11 +39,9 @@
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
+#include "freertos/task.h"
 
 static const char *TAG = "OTA";
-
-/** Perform a fallback OTA check every N boots */
-#define OTA_BOOT_CHECK_INTERVAL 100
 
 /** Maximum length of a constructed manifest URL */
 #define MANIFEST_URL_MAX 512
@@ -57,8 +55,9 @@ static const char *TAG = "OTA";
 /** Maximum length of a version string */
 #define VERSION_MAX 32
 
-/** SHA-256 hex string length (64 chars + null terminator) */
-#define SHA256_HEX_LEN 65
+/** SHA-256 digest length in bytes and hex characters */
+#define SHA256_LEN_BYTES 32
+#define SHA256_HEX_LEN   64
 
 /** Base URL for the firmware server */
 #define FIRMWARE_BASE_URL "https://firmware.sven.lol"
@@ -71,6 +70,12 @@ static const char *TAG = "OTA";
 
 /** Progress reporting interval (percentage points) */
 #define OTA_PROGRESS_STEP 20
+
+/** Stack size for OTA worker task (bytes). */
+#define OTA_TASK_STACK_SIZE 8192
+
+/** Priority for OTA worker task. */
+#define OTA_TASK_PRIORITY 5
 
 /* ------------------------------------------------------------------ */
 /*  WiFi connection for OTA                                            */
@@ -191,70 +196,91 @@ static void ota_wifi_disconnect(void)
 }
 
 /* ------------------------------------------------------------------ */
-/*  Version comparison                                                 */
+/*  Hash helpers                                                       */
 /* ------------------------------------------------------------------ */
 
 /**
- * Compare two semver strings (major.minor.patch).
- * @return  > 0 if available is newer,
- *            0 if equal,
- *          < 0 if available is older.
+ * Normalize a SHA-256 string to lowercase hex.
+ * Accepts optional "sha256:" prefix and requires exactly 64 hex chars.
  */
-static int compare_versions(const char *current, const char *available)
+static bool normalize_sha256_hex(const char *in, char out[SHA256_HEX_LEN + 1])
 {
-    int cur_major = 0, cur_minor = 0, cur_patch = 0;
-    int avl_major = 0, avl_minor = 0, avl_patch = 0;
-
-    sscanf(current, "%d.%d.%d", &cur_major, &cur_minor, &cur_patch);
-    sscanf(available, "%d.%d.%d", &avl_major, &avl_minor, &avl_patch);
-
-    if (avl_major != cur_major) return avl_major - cur_major;
-    if (avl_minor != cur_minor) return avl_minor - cur_minor;
-    return avl_patch - cur_patch;
-}
-
-/**
- * Convert binary SHA-256 digest to lowercase hex string.
- */
-static void sha256_to_hex(const uint8_t *digest, char *out_hex, size_t out_size)
-{
-    static const char *hex = "0123456789abcdef";
-
-    if (!digest || !out_hex || out_size < SHA256_HEX_LEN) {
-        return;
-    }
-
-    for (size_t i = 0; i < 32; i++) {
-        out_hex[i * 2] = hex[(digest[i] >> 4) & 0x0F];
-        out_hex[i * 2 + 1] = hex[digest[i] & 0x0F];
-    }
-    out_hex[64] = '\0';
-}
-
-/**
- * Validate that a hash is exactly 64 hex characters.
- */
-static bool is_valid_sha256_hex(const char *hash)
-{
-    if (!hash) {
+    if (!in || !out) {
         return false;
     }
 
-    if (strlen(hash) != 64) {
-        return false;
+    const char *p = in;
+    if (strncmp(p, "sha256:", 7) == 0) {
+        p += 7;
     }
 
-    for (size_t i = 0; i < 64; i++) {
-        char c = hash[i];
-        bool is_digit = (c >= '0' && c <= '9');
-        bool is_lower = (c >= 'a' && c <= 'f');
-        bool is_upper = (c >= 'A' && c <= 'F');
-        if (!is_digit && !is_lower && !is_upper) {
+    int i;
+    for (i = 0; i < SHA256_HEX_LEN && p[i] != '\0'; i++) {
+        char c = p[i];
+        if (c >= '0' && c <= '9') {
+            out[i] = c;
+        } else if (c >= 'a' && c <= 'f') {
+            out[i] = c;
+        } else if (c >= 'A' && c <= 'F') {
+            out[i] = (char)(c - 'A' + 'a');
+        } else {
             return false;
         }
     }
 
+    if (i != SHA256_HEX_LEN || p[i] != '\0') {
+        return false;
+    }
+
+    out[SHA256_HEX_LEN] = '\0';
     return true;
+}
+
+/** Read SHA-256 hash of the installed project partition (ota_0). */
+static esp_err_t get_installed_project_hash(char out[SHA256_HEX_LEN + 1])
+{
+    const esp_partition_t *part = esp_partition_find_first(
+        ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_ANY,
+        OTA_PARTITION_LABEL);
+
+    if (!part) {
+        return ESP_ERR_NOT_FOUND;
+    }
+
+    uint8_t digest[SHA256_LEN_BYTES];
+    esp_err_t err = esp_partition_get_sha256(part, digest);
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    for (int i = 0; i < SHA256_LEN_BYTES; i++) {
+        snprintf(&out[i * 2], 3, "%02x", digest[i]);
+    }
+    out[SHA256_HEX_LEN] = '\0';
+    return ESP_OK;
+}
+
+/**
+ * Read cached project firmware hash from NVS and normalize it.
+ */
+static esp_err_t get_cached_project_hash(char out[SHA256_HEX_LEN + 1])
+{
+    char cached_hash[SHA256_HEX_LEN + 1] = {0};
+    esp_err_t err = core_storage_read_str(NVS_NAMESPACE_CORE,
+                                          NVS_KEY_PROJECT_FW_HASH,
+                                          cached_hash,
+                                          sizeof(cached_hash));
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    if (!normalize_sha256_hex(cached_hash, out)) {
+        ESP_LOGW(TAG, "Cached firmware hash is invalid, clearing cache");
+        core_storage_erase_key(NVS_NAMESPACE_CORE, NVS_KEY_PROJECT_FW_HASH);
+        return ESP_ERR_INVALID_RESPONSE;
+    }
+
+    return ESP_OK;
 }
 
 /* ------------------------------------------------------------------ */
@@ -338,12 +364,11 @@ void core_ota_check_rollback(void)
 
 /**
  * Fetch the firmware manifest JSON from the server.
- * Extracts the "version" and "bin" fields.
+ * Extracts the "bin" field and SHA-256 hash ("hash" or "sha256").
  */
 static esp_err_t fetch_manifest(const char *url,
-                                char *version_out, size_t version_max,
-                                char *firmware_url_out, size_t firmware_url_max,
-                                char *firmware_sha256_out, size_t firmware_sha256_max)
+                                char *bin_url_out, size_t bin_url_max,
+                                char hash_out[SHA256_HEX_LEN + 1])
 {
     char *body = malloc(MANIFEST_BODY_MAX);
     if (!body) return ESP_ERR_NO_MEM;
@@ -399,25 +424,27 @@ static esp_err_t fetch_manifest(const char *url,
         return ESP_FAIL;
     }
 
-    cJSON *version = cJSON_GetObjectItem(root, "version");
     cJSON *bin = cJSON_GetObjectItem(root, "bin");
-    cJSON *sha256 = cJSON_GetObjectItem(root, "sha256");
+    cJSON *hash = cJSON_GetObjectItem(root, "hash");
+    if (!cJSON_IsString(hash) || !hash->valuestring) {
+        hash = cJSON_GetObjectItem(root, "sha256");
+    }
 
-    if (!cJSON_IsString(version) || !version->valuestring ||
-        !cJSON_IsString(bin) || !bin->valuestring ||
-        !cJSON_IsString(sha256) || !sha256->valuestring ||
-        !is_valid_sha256_hex(sha256->valuestring)) {
+    if (!cJSON_IsString(bin) || !bin->valuestring ||
+        !cJSON_IsString(hash) || !hash->valuestring) {
         ESP_LOGW(TAG, "Invalid manifest format");
         cJSON_Delete(root);
         return ESP_FAIL;
     }
 
-    strncpy(version_out, version->valuestring, version_max - 1);
-    version_out[version_max - 1] = '\0';
-    strncpy(firmware_url_out, bin->valuestring, firmware_url_max - 1);
-    firmware_url_out[firmware_url_max - 1] = '\0';
-    strncpy(firmware_sha256_out, sha256->valuestring, firmware_sha256_max - 1);
-    firmware_sha256_out[firmware_sha256_max - 1] = '\0';
+    strncpy(bin_url_out, bin->valuestring, bin_url_max - 1);
+    bin_url_out[bin_url_max - 1] = '\0';
+
+    if (!normalize_sha256_hex(hash->valuestring, hash_out)) {
+        ESP_LOGW(TAG, "Manifest hash is invalid");
+        cJSON_Delete(root);
+        return ESP_FAIL;
+    }
 
     cJSON_Delete(root);
     return ESP_OK;
@@ -576,7 +603,7 @@ static esp_err_t perform_ota_update(const char *firmware_url,
     int last_progress = 0;
     mbedtls_sha256_context sha256_ctx;
     uint8_t digest[32] = {0};
-    char digest_hex[SHA256_HEX_LEN] = {0};
+    char digest_hex[SHA256_HEX_LEN + 1] = {0};
 
     mbedtls_sha256_init(&sha256_ctx);
     mbedtls_sha256_starts(&sha256_ctx, 0);
@@ -634,7 +661,10 @@ static esp_err_t perform_ota_update(const char *firmware_url,
 
     mbedtls_sha256_finish(&sha256_ctx, digest);
     mbedtls_sha256_free(&sha256_ctx);
-    sha256_to_hex(digest, digest_hex, sizeof(digest_hex));
+    for (int i = 0; i < SHA256_LEN_BYTES; i++) {
+        snprintf(&digest_hex[i * 2], 3, "%02x", digest[i]);
+    }
+    digest_hex[SHA256_HEX_LEN] = '\0';
 
     if (strcmp(digest_hex, expected_sha256) != 0) {
         ESP_LOGE(TAG, "Firmware hash mismatch");
@@ -719,10 +749,26 @@ esp_err_t core_ota_check_and_update(void)
 
     ESP_LOGI(TAG, "Checking firmware updates");
 
-    /* Get current project firmware version */
-    char current_version[VERSION_MAX] = {0};
-    core_ota_get_project_version(current_version, sizeof(current_version));
-    ESP_LOGI(TAG, "Current version: %s", current_version);
+    /* Read current project hash from cache; calculate only when missing */
+    char current_hash[SHA256_HEX_LEN + 1] = {0};
+    err = get_cached_project_hash(current_hash);
+    if (err == ESP_OK) {
+        ESP_LOGI(TAG, "Cached firmware hash: %.16s...", current_hash);
+    } else {
+        err = get_installed_project_hash(current_hash);
+        if (err == ESP_OK) {
+            ESP_LOGI(TAG, "Calculated firmware hash: %.16s...", current_hash);
+            esp_err_t cache_err = core_storage_write_str(NVS_NAMESPACE_CORE,
+                                                         NVS_KEY_PROJECT_FW_HASH,
+                                                         current_hash);
+            if (cache_err != ESP_OK) {
+                ESP_LOGW(TAG, "Failed to cache firmware hash (0x%x)", cache_err);
+            }
+        } else {
+            ESP_LOGW(TAG, "Could not read installed firmware hash (0x%x)", err);
+            current_hash[0] = '\0';
+        }
+    }
 
     /* Need firmware.project to construct the manifest URL */
     if (cfg->firmware.project[0] == '\0') {
@@ -738,35 +784,39 @@ esp_err_t core_ota_check_and_update(void)
              cfg->firmware.project, cfg->firmware.channel);
 
     /* Fetch manifest */
-    char available_version[VERSION_MAX] = {0};
     char firmware_url[FIRMWARE_URL_MAX] = {0};
-    char firmware_sha256[SHA256_HEX_LEN] = {0};
+    char available_hash[SHA256_HEX_LEN + 1] = {0};
 
     err = fetch_manifest(manifest_url,
-                         available_version, sizeof(available_version),
                          firmware_url, sizeof(firmware_url),
-                         firmware_sha256, sizeof(firmware_sha256));
+                         available_hash);
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "Failed to fetch manifest");
         ota_wifi_disconnect();
         return err;
     }
 
-    ESP_LOGI(TAG, "Available version: %s", available_version);
+    ESP_LOGI(TAG, "Available firmware hash: %.16s...", available_hash);
 
-    /* Compare versions */
-    if (compare_versions(current_version, available_version) <= 0) {
+    /* Update only when hash differs */
+    if (current_hash[0] != '\0' && strcmp(current_hash, available_hash) == 0) {
         ESP_LOGI(TAG, "Firmware is up to date");
         ota_wifi_disconnect();
         return ESP_ERR_NOT_FOUND;
     }
 
-    /* New version available — start OTA */
-    ESP_LOGI(TAG, "New version available, starting update");
-    err = perform_ota_update(firmware_url, firmware_sha256);
+    ESP_LOGI(TAG, "Firmware hash changed, starting update");
+    err = perform_ota_update(firmware_url, available_hash);
     ota_wifi_disconnect();
 
     if (err == ESP_OK) {
+        esp_err_t cache_err = core_storage_write_str(NVS_NAMESPACE_CORE,
+                                                     NVS_KEY_PROJECT_FW_HASH,
+                                                     available_hash);
+        if (cache_err != ESP_OK) {
+            ESP_LOGW(TAG, "Failed to save downloaded firmware hash (0x%x)",
+                     cache_err);
+        }
         ESP_LOGI("CORE", "Rebooting device");
         esp_restart();
     }
@@ -774,11 +824,55 @@ esp_err_t core_ota_check_and_update(void)
     return err;
 }
 
+typedef struct {
+    TaskHandle_t caller;
+    esp_err_t result;
+} ota_task_ctx_t;
+
+static void ota_check_task(void *arg)
+{
+    ota_task_ctx_t *ctx = (ota_task_ctx_t *)arg;
+    ctx->result = core_ota_check_and_update();
+    xTaskNotifyGive(ctx->caller);
+    vTaskDelete(NULL);
+}
+
+static esp_err_t run_ota_check_in_worker_task(void)
+{
+    ota_task_ctx_t ctx = {
+        .caller = xTaskGetCurrentTaskHandle(),
+        .result = ESP_FAIL,
+    };
+
+    BaseType_t created = xTaskCreate(ota_check_task,
+                                     "ota_worker",
+                                     OTA_TASK_STACK_SIZE,
+                                     &ctx,
+                                     OTA_TASK_PRIORITY,
+                                     NULL);
+    if (created != pdPASS) {
+        ESP_LOGE(TAG, "Failed to create OTA worker task");
+        return ESP_ERR_NO_MEM;
+    }
+
+    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    return ctx.result;
+}
+
 bool core_ota_run(void)
 {
+    const core_config_t *cfg = core_config_get();
+    uint32_t interval = cfg->system.ota_check_interval_boots;
+
+    if (interval < CONFIG_OTA_INTERVAL_MIN) {
+        interval = CONFIG_OTA_INTERVAL_DEFAULT;
+    }
+
     /* 1. Increment boot counter */
     uint32_t boot_count = core_ota_increment_boot_count();
     ESP_LOGI("CORE", "Boot count: %lu", (unsigned long)boot_count);
+    ESP_LOGI(TAG, "Scheduled OTA interval: every %lu boots",
+             (unsigned long)interval);
 
     /* 2. Check OTA request flag */
     uint8_t ota_requested = 0;
@@ -792,7 +886,7 @@ bool core_ota_run(void)
         core_storage_erase_key(NVS_NAMESPACE_CORE, NVS_KEY_OTA_REQUEST);
 
         ESP_LOGI(TAG, "Starting update process");
-        esp_err_t err = core_ota_check_and_update();
+        esp_err_t err = run_ota_check_in_worker_task();
         if (err == ESP_OK) {
             return true; /* device will restart */
         }
@@ -802,10 +896,10 @@ bool core_ota_run(void)
     }
 
     /* 3. Check scheduled fallback */
-    if (boot_count > 0 && (boot_count % OTA_BOOT_CHECK_INTERVAL) == 0) {
+    if (boot_count > 0 && (boot_count % interval) == 0) {
         ESP_LOGI(TAG, "Performing scheduled update check");
 
-        esp_err_t err = core_ota_check_and_update();
+        esp_err_t err = run_ota_check_in_worker_task();
         if (err == ESP_OK) {
             return true; /* device will restart */
         }
