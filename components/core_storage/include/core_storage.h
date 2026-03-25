@@ -46,6 +46,9 @@
 /** uint8 – consecutive project firmware crash counter */
 #define NVS_KEY_PROJECT_CRASH_COUNT "proj_crash"
 
+/** string – cached SHA-256 of latest downloaded/applied project firmware */
+#define NVS_KEY_PROJECT_FW_HASH "proj_hash"
+
 /* ------------------------------------------------------------------ */
 /*  Initialization                                                     */
 /* ------------------------------------------------------------------ */

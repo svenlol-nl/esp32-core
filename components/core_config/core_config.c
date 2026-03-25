@@ -31,6 +31,8 @@ static const char *TAG = "CONFIG";
 #define NVS_KEY_WIFI_PASS        "wifi_pass"
 #define NVS_KEY_FW_PROJECT       "fw_proj"
 #define NVS_KEY_FW_CHANNEL       "fw_chan"
+#define NVS_KEY_FW_BIN_URL       "fw_url"
+#define NVS_KEY_OTA_INTERVAL     "ota_int"
 /* local_configure_enabled reuses NVS_KEY_LOCAL_CONFIGURE ("local_cfg") */
 
 /* ------------------------------------------------------------------ */
@@ -51,6 +53,7 @@ static void set_defaults(core_config_t *cfg)
 {
     memset(cfg, 0, sizeof(*cfg));
     cfg->system.local_configure_enabled = 1;  /* first boot → configure */
+    cfg->system.ota_check_interval_boots = CONFIG_OTA_INTERVAL_DEFAULT;
     strncpy(cfg->firmware.channel, CONFIG_CHANNEL_STABLE,
             sizeof(cfg->firmware.channel) - 1);
 }
@@ -94,6 +97,8 @@ esp_err_t core_config_init(void)
     /* local_configure_enabled is stored as u8 */
     core_storage_read_u8(NVS_NAMESPACE_CORE, NVS_KEY_LOCAL_CONFIGURE,
                          &s_config.system.local_configure_enabled);
+    core_storage_read_u32(NVS_NAMESPACE_CORE, NVS_KEY_OTA_INTERVAL,
+                          &s_config.system.ota_check_interval_boots);
 
     s_loaded = true;
 
@@ -105,6 +110,8 @@ esp_err_t core_config_init(void)
     ESP_LOGI(TAG, "  firmware.channel : %s", s_config.firmware.channel);
     ESP_LOGI(TAG, "  system.local_cfg : %u",
              s_config.system.local_configure_enabled);
+    ESP_LOGI(TAG, "  system.ota_every : %lu boots",
+             (unsigned long)s_config.system.ota_check_interval_boots);
 
     return ESP_OK;
 }
@@ -161,6 +168,15 @@ bool core_config_validate(const core_config_t *cfg)
         ok = false;
     }
 
+    if (cfg->system.ota_check_interval_boots < CONFIG_OTA_INTERVAL_MIN ||
+        cfg->system.ota_check_interval_boots > CONFIG_OTA_INTERVAL_MAX) {
+        ESP_LOGW(TAG, "Invalid configuration: system.ota_check_interval_boots"
+                      " must be %lu..%lu",
+                 (unsigned long)CONFIG_OTA_INTERVAL_MIN,
+                 (unsigned long)CONFIG_OTA_INTERVAL_MAX);
+        ok = false;
+    }
+
     return ok;
 }
 
@@ -200,6 +216,10 @@ esp_err_t core_config_save(void)
 
     err = core_storage_write_u8(NVS_NAMESPACE_CORE, NVS_KEY_LOCAL_CONFIGURE,
                                 s_config.system.local_configure_enabled);
+    if (err != ESP_OK) return err;
+
+    err = core_storage_write_u32(NVS_NAMESPACE_CORE, NVS_KEY_OTA_INTERVAL,
+                                 s_config.system.ota_check_interval_boots);
     if (err != ESP_OK) return err;
 
     ESP_LOGI(TAG, "Configuration saved");
@@ -271,6 +291,7 @@ esp_err_t core_config_factory_reset(void)
     s_config.system.local_configure_enabled = 1;
     strncpy(s_config.firmware.channel, CONFIG_CHANNEL_STABLE,
             sizeof(s_config.firmware.channel) - 1);
+    s_config.system.ota_check_interval_boots = CONFIG_OTA_INTERVAL_DEFAULT;
 
     ESP_LOGI("CORE", "Configuration cleared");
     return ESP_OK;
